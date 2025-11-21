@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Project Details - Project Manager</title>
+    
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@1/css/pico.min.css">
+    <link rel="stylesheet" href="css/style.css">
+    
+    <script src="js/auth.js"></script> <script src="js/api.js" defer></script>
+    <script src="js/utils.js" defer></script>
+    
+    <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+
+    <script>
+        protectPage();
+    </script>
+</head>
+<body>
+
+    <nav class="container-fluid">
+        <ul>
+            <li><strong>Project Manager</strong></li>
+        </ul>
+        <ul>
+            <li><a href="dashboard.html" class="secondary" role="button">Dashboard</a></li>
+            <li><a href="profile.html" class="secondary" role="button">My Profile</a></li>
+            <li><button class="secondary outline" onclick="logout()">Logout</button></li>
+        </ul>
+    </nav>
+
+    <main class="container" x-data="{
+        // --- Core Data ---
+        projectId: null,
+        project: {},
+        issues: [],
+        sprints: [],
+        users: [], // For assignee dropdowns
+        worklogReport: [],
+        totalHours: 0,
+        
+        // --- UI State ---
+        isLoading: true,
+        errorMessage: '',
+        currentTab: 'issues', // 'issues', 'sprints', 'reports', 'settings'
+        
+        // --- Sprint Modal State ---
+        isSprintModalOpen: false,
+        newSprint: {
+            sprint_name: '',
+            goal: '',
+            start_date: null,
+            end_date: null,
+            status: 'future'
+        },
+        sprintModalError: '',
+        
+        // --- Update Project Modal State ---
+        isUpdateModalOpen: false,
+        updatedProject: {},
+        updateModalError: '',
+        
+        // --- Delete Project Modal State ---
+        isDeleteModalOpen: false,
+        deleteConfirmKey: '',
+        deleteModalError: '',
+
+        /**
+         * Initializes the component.
+         * Gets the project ID from the URL and fetches all necessary data.
+         */
+        async init() {
+            this.isLoading = true;
+            this.errorMessage = '';
+            this.projectId = getQueryParam('id');
+            
+            if (!this.projectId) {
+                this.errorMessage = 'No project ID found in the URL.';
+                this.isLoading = false;
+                return;
+            }
+
+            try {
+                // Fetch all data in parallel
+                // We have REMOVED usersData and api.getUsers() from this list
+                const [
+                    projectData, 
+                    issuesData, 
+                    sprintsData, 
+                    reportData, 
+                    hoursData
+                ] = await Promise.all([
+                    api.getProjectById(this.projectId),
+                    api.getIssuesForProject(this.projectId),
+                    api.getSprintsForProject(this.projectId),
+                    api.getProjectHoursByUser(this.projectId),
+                    api.getTotalHoursForProject(this.projectId)
+                ]);
+
+                this.project = projectData;
+                this.issues = issuesData;
+                this.sprints = sprintsData;
+                // We have REMOVED this.users = usersData;
+                this.worklogReport = reportData;
+                this.totalHours = hoursData.total_project_hours;
+
+            } catch (error) {
+                // This will now correctly show the error message
+                this.errorMessage = error.message; 
+            } finally {
+                this.isLoading = false;
+            }
+        },
+        
+        // --- Sprint Modal Functions ---
+        openSprintModal() {
+            this.newSprint = { sprint_name: '', goal: '', start_date: null, end_date: null, status: 'future' };
+            this.sprintModalError = '';
+            this.isSprintModalOpen = true;
+        },
+        closeSprintModal() { this.isSprintModalOpen = false; },
+        async handleCreateSprint() {
+            this.sprintModalError = '';
+            if (!this.newSprint.sprint_name) {
+                this.sprintModalError = 'Sprint Name is required.';
+                return;
+            }
+            try {
+                const sprintData = { ...this.newSprint, project_id: this.projectId };
+                const created = await api.createSprint(sprintData);
+                this.sprints.unshift(created);
+                this.closeSprintModal();
+            } catch (error) {
+                this.sprintModalError = error.message;
+            }
+        },
+        
+        // --- Update Project Modal Functions ---
+        openUpdateModal() {
+            // Copy project data to avoid modifying the original state
+            this.updatedProject = { ...this.project };
+            this.updateModalError = '';
+            this.isUpdateModalOpen = true;
+        },
+        closeUpdateModal() { this.isUpdateModalOpen = false; },
+        async handleUpdateProject() {
+            this.updateModalError = '';
+            if (!this.updatedProject.project_name) {
+                this.updateModalError = 'Project Name is required.';
+                return;
+            }
+            try {
+                // We only send fields that can be updated
+                const dataToSend = {
+                    project_name: this.updatedProject.project_name,
+                    description: this.updatedProject.description,
+                    start_date: this.updatedProject.start_date,
+                    end_date: this.updatedProject.end_date,
+                    status: this.updatedProject.status
+                };
+                const result = await api.updateProject(this.projectId, dataToSend);
+                this.project = result; // Update the main project object
+                this.closeUpdateModal();
+            } catch (error) {
+                this.updateModalError = error.message;
+            }
+        },
+        
+        // --- Delete Project Modal Functions ---
+        openDeleteModal() {
+            this.deleteConfirmKey = '';
+            this.deleteModalError = '';
+            this.isDeleteModalOpen = true;
+        },
+        closeDeleteModal() { this.isDeleteModalOpen = false; },
+        async handleDeleteProject() {
+            this.deleteModalError = '';
+            if (this.deleteConfirmKey !== this.project.project_key) {
+                this.deleteModalError = 'The project key does not match.';
+                return;
+            }
+            try {
+                await api.deleteProject(this.projectId);
+                alert('Project deleted successfully.');
+                window.location.href = 'dashboard.html';
+            } catch (error) {
+                this.deleteModalError = error.message;
+            }
+        }
+
+    }" x-init="init()">
+
+        <div x-show="isLoading" aria-busy="true" class="container">Loading project data...</div>
+
+        <div x-show="errorMessage" class="container">
+            <article style="background: var(--pico-del-color); color: var(--pico-font-color);">
+                <strong>Error:</strong> <span x-text="errorMessage"></span>
+                <p><a href="dashboard.html">Go back to Dashboard</a></p>
+            </article>
+        </div>
+
+        <div x-show="!isLoading && !errorMessage">
+            
+            <header>
+                <nav>
+                    <ul>
+                        <li>
+                            <a href="dashboard.html" class="secondary">Projects</a>
+                        </li>
+                        <li>/</li>
+                        <li>
+                            <h1 style="font-size: 1.75rem; margin: 0;" x-text="project.project_name + ' (' + project.project_key + ')'"></h1>
+                        </li>
+                    </ul>
+                </nav>
+            </header>
+
+            <nav>
+                <ul>
+                    <li><a href="#" :class="currentTab === 'issues' ? '' : 'secondary'" @click.prevent="currentTab = 'issues'">Issues</a></li>
+                    <li><a href="#" :class="currentTab === 'sprints' ? '' : 'secondary'" @click.prevent="currentTab = 'sprints'">Sprints</a></li>
+                    <li><a href="#" :class="currentTab === 'reports' ? '' : 'secondary'" @click.prevent="currentTab = 'reports'">Reports</a></li>
+                    <li><a href="#" :class="currentTab === 'settings' ? '' : 'secondary'" @click.prevent="currentTab = 'settings'">Settings</a></li>
+                </ul>
+            </nav>
+
+            <hr style="margin-top: 0;">
+
+            <section x-show="currentTab === 'issues'">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <h2>Issues</h2>
+                    <a :href="'create-issue.html?project_id=' + projectId" role="button">
+                        + New Issue
+                    </a>
+                </div>
+                
+                <p x-show="issues.length === 0">No issues have been created for this project yet.</p>
+                
+                <table role="grid" x-show="issues.length > 0">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Description</th>
+                            <th>Status</th>
+                            <th>Type</th>
+                            <th>Priority</th>
+                            <th>Assignee</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <template x-for="issue in issues" :key="issue.issue_id">
+                            <tr>
+                                <td><strong x-text="project.project_key + '-' + issue.issue_id"></strong></td>
+                                <td>
+                                    <a :href="'issue.html?id=' + issue.issue_id" x-text="issue.description.substring(0, 50) + (issue.description.length > 50 ? '...' : '')"></a>
+                                </td>
+                                <td x-text="issue.status"></td>
+                                <td x-text="issue.issue_type"></td>
+                                <td x-text="issue.priority"></td>
+                                <td x-text="issue.assignee_username || 'Unassigned'"></td>
+                            </tr>
+                        </template>
+                    </tbody>
+                </table>
+            </section>
+
+            <section x-show="currentTab === 'sprints'">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <h2>Sprints</h2>
+                    <button @click="openSprintModal()">
+                        + New Sprint
+                    </button>
+                </div>
+                
+                <p x-show="sprints.length === 0">No sprints have been created for this project yet.</p>
+
+                <template x-for="sprint in sprints" :key="sprint.sprint_id">
+                    <article>
+                        <header>
+                            <h3 x-text="sprint.sprint_name"></h3>
+                        </header>
+                        <p x-text="sprint.goal || 'No goal set.'"></p>
+                        <footer>
+                            <strong>Status:</strong> <span x-text="capitalize(sprint.status)"></span> | 
+                            <strong>Starts:</strong> <span x-text="formatDate(sprint.start_date)"></span> | 
+                            <strong>Ends:</strong> <span x-text="formatDate(sprint.end_date)"></span>
+                        </footer>
+                    </article>
+                </template>
+            </section>
+            
+            <section x-show="currentTab === 'reports'">
+                <h2>Worklog Reports</h2>
+                <article>
+                    <h3>Total Hours Logged: <span x-text="totalHours.toFixed(2)"></span></h3>
+                </article>
+                
+                <h3>Hours by User</h3>
+                <p x-show="worklogReport.length === 0">No work has been logged for this project yet.</p>
+                
+                <table role="grid" x-show="worklogReport.length > 0">
+                    <thead>
+                        <tr>
+                            <th>User</th>
+                            <th>Total Hours</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <template x-for="report in worklogReport" :key="report.user_id">
+                            <tr>
+                                <td x-text="report.username"></td>
+                                <td x-text="report.total_user_hours.toFixed(2)"></td>
+                            </tr>
+                        </template>
+                    </tbody>
+                </table>
+            </section>
+            
+            <section x-show="currentTab === 'settings'">
+                <h2>Project Settings</h2>
+                <button @click="openUpdateModal()">
+                    Update Project Details
+                </button>
+                
+                <hr>
+                
+                <article>
+                    <header><strong>Danger Zone</strong></header>
+                    <p>Deleting a project is permanent and will remove all associated issues, sprints, and worklogs.</p>
+                    <button class="outline" style="--pico-color: var(--pico-del-color);" @click="openDeleteModal()">
+                        Delete this Project
+                    </button>
+                </article>
+            </section>
+        </div>
+
+        <dialog :open="isSprintModalOpen">
+            <article>
+                <header>
+                    <a href="#close" aria-label="Close" class="close" @click.prevent="closeSprintModal()"></a>
+                    Create New Sprint
+                </header>
+                <form @submit.prevent="handleCreateSprint()">
+                    <label>Sprint Name (Required)
+                        <input type="text" x-model="newSprint.sprint_name" required>
+                    </label>
+                    <label>Goal
+                        <textarea x-model="newSprint.goal" rows="3"></textarea>
+                    </label>
+                    <div class="grid">
+                        <label>Start Date
+                            <input type="date" x-model="newSprint.start_date">
+                        </label>
+                        <label>End Date
+                            <input type="date" x-model="newSprint.end_date">
+                        </label>
+                    </div>
+                    <label>Status
+                        <select x-model="newSprint.status">
+                            <option value="future">Future</option>
+                            <option value="active">Active</option>
+                            <option value="completed">Completed</option>
+                        </select>
+                    </label>
+                    <small x-show="sprintModalError" style="color: var(--pico-del-color);" x-text="sprintModalError"></small>
+                    <footer>
+                        <button type="button" class="secondary" @click="closeSprintModal()">Cancel</button>
+                        <button type="submit">Create Sprint</button>
+                    </footer>
+                </form>
+            </article>
+        </dialog>
+
+        <dialog :open="isUpdateModalOpen">
+            <article>
+                <header>
+                    <a href="#close" aria-label="Close" class="close" @click.prevent="closeUpdateModal()"></a>
+                    Update Project Settings
+                </header>
+                <form @submit.prevent="handleUpdateProject()">
+                    <label>Project Name (Required)
+                        <input type="text" x-model="updatedProject.project_name" required>
+                    </label>
+                    <label>Description
+                        <textarea x-model="updatedProject.description" rows="3"></textarea>
+                    </label>
+                    <div class="grid">
+                        <label>Start Date
+                            <input type="date" x-model="updatedProject.start_date">
+                        </label>
+                        <label>End Date
+                            <input type="date" x-model="updatedProject.end_date">
+                        </label>
+                    </div>
+                    <label>Status
+                        <select x-model="updatedProject.status">
+                            <option value="planning">Planning</option>
+                            <option value="active">Active</option>
+                            <option value="completed">Completed</option>
+                            <option value="archived">Archived</option>
+                        </select>
+                    </label>
+                    <small x-show="updateModalError" style="color: var(--pico-del-color);" x-text="updateModalError"></small>
+                    <footer>
+                        <button type="button" class="secondary" @click="closeUpdateModal()">Cancel</button>
+                        <button type="submit">Save Changes</button>
+                    </footer>
+                </form>
+            </article>
+        </dialog>
+
+        <dialog :open="isDeleteModalOpen">
+            <article>
+                <header>
+                    <a href="#close" aria-label="Close" class="close" @click.prevent="closeDeleteModal()"></a>
+                    Delete Project
+                </header>
+                <form @submit.prevent="handleDeleteProject()">
+                    <p>This action is irreversible. To confirm, please type the project key: <strong x-text="project.project_key"></strong></p>
+                    <label>Project Key
+                        <input type="text" x-model="deleteConfirmKey">
+                    </label>
+                    <small x-show="deleteModalError" style="color: var(--pico-del-color);" x-text="deleteModalError"></small>
+                    <footer>
+                        <button type="button" class="secondary" @click="closeDeleteModal()">Cancel</button>
+                        <button type="submit" style="--pico-color: var(--pico-del-color);">Delete Project</button>
+                    </footer>
+                </form>
+            </article>
+        </dialog>
+
+    </main>
+</body>
+</html>

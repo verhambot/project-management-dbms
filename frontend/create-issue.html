@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Create Issue - Project Manager</title>
+    
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@1/css/pico.min.css">
+    <link rel="stylesheet" href="css/style.css">
+    
+    <script src="js/auth.js"></script> <script src="js/api.js" defer></script>
+    <script src="js/utils.js" defer></script>
+    
+    <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+
+    <script>
+        protectPage();
+    </script>
+</head>
+<body>
+
+    <nav class="container-fluid">
+        <ul>
+            <li><strong>Project Manager</strong></li>
+        </ul>
+        <ul>
+            <li><a href="dashboard.html" class="secondary" role="button">Dashboard</a></li>
+            <li><a href="profile.html" class="secondary" role="button">My Profile</a></li>
+            <li><button class="secondary outline" onclick="logout()">Logout</button></li>
+        </ul>
+    </nav>
+
+    <main class="container" style="max-width: 800px;" x-data="{
+        // --- Core Data ---
+        projectId: null,
+        project: null,
+        sprints: [],
+        assignableUsers: [], // <-- RENAMED from users
+        projectIssues: [], // For parent issue dropdown
+        
+        // --- Form Data Model (matches IssueCreate) ---
+        newIssue: {
+            project_id: null,
+            description: '',
+            issue_type: 'Task',
+            priority: 'Medium',
+            assignee_id: null,
+            sprint_id: null,
+            due_date: null,
+            story_points: null,
+            parent_issue_id: null
+        },
+        
+        // --- UI State ---
+        isLoading: true,
+        isSubmitting: false,
+        errorMessage: '',
+
+        /**
+         * Initializes the component.
+         * Gets the project ID from the URL and fetches data for dropdowns.
+         *
+         * === FIX ===
+         * This function no longer calls api.getUsers().
+         * It now fetches the current user and the project owner
+         * to populate the assignableUsers list.
+         */
+        async init() {
+            this.isLoading = true;
+            this.errorMessage = '';
+            this.projectId = getQueryParam('project_id');
+            
+            if (!this.projectId) {
+                this.errorMessage = 'No project ID found in the URL. Cannot create issue.';
+                this.isLoading = false;
+                return;
+            }
+            
+            this.newIssue.project_id = parseInt(this.projectId);
+
+            try {
+                // Step 1: Fetch data in parallel
+                const [projectData, sprintsData, issuesData, currentUserData] = await Promise.all([
+                    api.getProjectById(this.projectId),
+                    api.getSprintsForProject(this.projectId),
+                    api.getIssuesForProject(this.projectId), // For parent issue dropdown
+                    api.getCurrentUser() // Get the logged-in user
+                ]);
+
+                this.project = projectData;
+                this.sprints = sprintsData;
+                this.projectIssues = issuesData;
+                
+                // Step 2: Build the 'assignableUsers' list
+                this.assignableUsers = [];
+                // Add the current user
+                this.assignableUsers.push(currentUserData);
+                
+                // Step 3: Fetch the project owner (if they aren't the current user)
+                if (this.project.owner_id !== currentUserData.user_id) {
+                    try {
+                        const ownerData = await api.getUserById(this.project.owner_id);
+                        if (ownerData) {
+                            this.assignableUsers.push(ownerData);
+                        }
+                    } catch (ownerError) {
+                        console.warn('Could not fetch project owner data:', ownerError.message);
+                        // Don't crash the page if this fails, just log it.
+                    }
+                }
+                
+            } catch (error) {
+                this.errorMessage = `Failed to load form data: ${error.message}`;
+            } finally {
+                this.isLoading = false;
+            }
+        },
+
+        /**
+         * Handles the form submission.
+         *
+         * === FIX 3.0 ===
+         * This version is much more robust. It explicitly checks
+         * each field and converts its type *before* sending it to the API,
+         * correctly handling nulls, 0s, and empty strings.
+         */
+        async handleCreateIssue() {
+            this.isSubmitting = true;
+            this.errorMessage = '';
+
+            // 1. Basic Validation
+            if (!this.newIssue.description.trim()) {
+                this.errorMessage = 'Description is required.';
+                this.isSubmitting = false;
+                return;
+            }
+            
+            // 2. Build the final data payload
+            try {
+                const issueData = {
+                    project_id: this.newIssue.project_id, // Already an int
+                    description: this.newIssue.description,
+                    issue_type: this.newIssue.issue_type,
+                    priority: this.newIssue.priority,
+
+                    // 3. Explicitly parse all optional number fields
+                    assignee_id: (this.newIssue.assignee_id === null || this.newIssue.assignee_id === '') 
+                        ? null 
+                        : parseInt(this.newIssue.assignee_id),
+                    
+                    sprint_id: (this.newIssue.sprint_id === null || this.newIssue.sprint_id === '') 
+                        ? null 
+                        : parseInt(this.newIssue.sprint_id),
+                    
+                    parent_issue_id: (this.newIssue.parent_issue_id === null || this.newIssue.parent_issue_id === '') 
+                        ? null 
+                        : parseInt(this.newIssue.parent_issue_id),
+                        
+                    story_points: (this.newIssue.story_points === null || this.newIssue.story_points === '') 
+                        ? null 
+                        : parseInt(this.newIssue.story_points),
+
+                    // 4. Handle optional date
+                    due_date: (this.newIssue.due_date === '')
+                        ? null
+                        : this.newIssue.due_date
+                };
+
+                // 5. Send to API
+                const createdIssue = await api.createIssue(issueData);
+                
+                // Success! Redirect to the new issue's page
+                window.location.href = `issue.html?id=${createdIssue.issue_id}`;
+                
+            } catch (error) {
+                // Display API errors (e.g., 'Sprint does not belong to project')
+                this.errorMessage = error.message;
+            } finally {
+                this.isSubmitting = false;
+            }
+        }
+    }" x-init="init()">
+
+        <div x-show="isLoading" aria-busy="true">Loading form...</div>
+
+        <div x-show="errorMessage && !isLoading">
+            <article style="background: var(--pico-del-color); color: var(--pico-font-color);">
+                <strong>Error:</strong> <span x-text="errorMessage"></span>
+                <p><a href="dashboard.html">Go back to Dashboard</a></p>
+            </article>
+        </div>
+
+        <article x-show="!isLoading && !errorMessage">
+            <header>
+                <nav>
+                    <ul>
+                        <li><a :href="'project.html?id=' + projectId" class="secondary" x-text="project ? project.project_name : 'Project'"></a></li>
+                        <li>/</li>
+                        <li>Create Issue</li>
+                    </ul>
+                </nav>
+            </header>
+            
+            <form @submit.prevent="handleCreateIssue()">
+                
+                <label for="description">Description (Required)</label>
+                <textarea 
+                    id="description"
+                    x-model="newIssue.description"
+                    rows="5"
+                    required
+                    placeholder="Enter a detailed description of the task, bug, or story..."
+                ></textarea>
+
+                <div class="grid">
+                    <label for="issue_type">Issue Type
+                        <select id="issue_type" x-model="newIssue.issue_type">
+                            <option value="Task">Task</option>
+                            <option value="Bug">Bug</option>
+                            <option value="Story">Story</option>
+                            <option value="Epic">Epic</option>
+                        </select>
+                    </label>
+                    
+                    <label for="priority">Priority
+                        <select id="priority" x-model="newIssue.priority">
+                            <option value="Highest">Highest</option>
+                            <option value="High">High</option>
+                            <option value="Medium">Medium</option>
+                            <option value="Low">Low</option>
+                            <option value="Lowest">Lowest</option>
+                        </select>
+                    </label>
+                </div>
+                
+                <hr>
+                
+                <div class="grid">
+                    <label for="assignee_id">Assignee
+                        <select id="assignee_id" x-model="newIssue.assignee_id">
+                            <option :value="null">Unassigned</option>
+                            <template x-for="user in assignableUsers" :key="user.user_id">
+                                <option :value="user.user_id" x-text="user.username"></option>
+                            </template>
+                        </select>
+                    </label>
+                    
+                    <label for="sprint_id">Sprint
+                        <select id="sprint_id" x-model="newIssue.sprint_id">
+                            <option :value="null">Backlog</option>
+                            <template x-for="sprint in sprints" :key="sprint.sprint_id">
+                                <option :value="sprint.sprint_id" x-text="sprint.sprint_name"></option>
+                            </template>
+                        </select>
+                    </label>
+                </div>
+
+                <div class="grid">
+                    <label for="due_date">Due Date
+                        <input type="date" id="due_date" x-model="newIssue.due_date">
+                    </label>
+                    
+                    <label for="story_points">Story Points
+                        <input type="number" id="story_points" x-model="newIssue.story_points" min="0" placeholder="e.g., 5">
+                    </label>
+                </div>
+                
+                <label for="parent_issue_id">Parent Issue (for sub-tasks)
+                    <select id="parent_issue_id" x-model="newIssue.parent_issue_id">
+                        <option :value="null">None</option>
+                        <template x-for="issue in projectIssues" :key="issue.issue_id">
+                            <option :value="issue.issue_id" x-text="project.project_key + '-' + issue.issue_id + ' (' + issue.description.substring(0, 30) + '...)'"></option>
+                        </template>
+                    </select>
+                </label>
+                
+                <hr>
+
+                <small 
+                    x-show="errorMessage && !isSubmitting" 
+                    x-text="errorMessage"
+                    style="color: var(--pico-del-color);"
+                ></small>
+                
+                <footer>
+                    <a :href="'project.html?id=' + projectId" role="button" class="secondary">Cancel</a>
+                    <button 
+                        type="submit" 
+                        :disabled="isSubmitting"
+                        :aria-busy="isSubmitting"
+                        x-text="isSubmitting ? 'Creating...' : 'Create Issue'"
+                    ></button>
+                </footer>
+            </form>
+        </article>
+
+    </main>
+</body>
+</html>

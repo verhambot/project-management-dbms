@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Issue Details - Project Manager</title>
+    
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@1/css/pico.min.css">
+    <link rel="stylesheet" href="css/style.css">
+    
+    <script src="js/auth.js"></script> <script src="js/api.js" defer></script>
+    <script src="js/utils.js" defer></script>
+    
+    <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+
+    <script>
+        protectPage();
+    </script>
+</head>
+<body>
+
+    <nav class="container-fluid">
+        <ul>
+            <li><strong>Project Manager</strong></li>
+        </ul>
+        <ul>
+            <li><a href="dashboard.html" class="secondary" role="button">Dashboard</a></li>
+            <li><a href="profile.html" class="secondary" role="button">My Profile</a></li>
+            <li><button class="secondary outline" onclick="logout()">Logout</button></li>
+        </ul>
+    </nav>
+
+    <main class="container" x-data="{
+        // --- Core Data ---
+        issueId: null,
+        issue: null, // Will hold the full IssueWithDetails object
+        project: null,
+        users: [], // For assignee dropdown
+        sprints: [], // For sprint dropdown
+        
+        // --- UI State ---
+        isLoading: true,
+        errorMessage: '',
+        currentUserId: getUserIdFromToken(), // From auth.js, for auth checks
+        
+        // --- Comment State ---
+        newCommentText: '',
+        isSubmittingComment: false,
+        
+        // --- Worklog Modal State ---
+        isWorklogModalOpen: false,
+        newWorklog: {
+            hours_logged: 1,
+            work_date: new Date().toISOString().split('T')[0], // Today
+            description: ''
+        },
+        worklogError: '',
+        
+        // --- Attachment State ---
+        newAttachmentFile: null,
+        isUploading: false,
+        uploadError: '',
+
+        /**
+         * Initializes the component.
+         * Gets the issue ID from the URL and fetches all necessary data.
+         *
+         * === FIX ===
+         * This function no longer calls api.getUsers().
+         * It now fetches the current user and the project owner
+         * to populate the 'users' list for the assignee dropdown.
+         */
+        async init() {
+            this.isLoading = true;
+            this.errorMessage = '';
+            this.issueId = getQueryParam('id');
+            
+            if (!this.issueId) {
+                this.errorMessage = 'No issue ID found in the URL.';
+                this.isLoading = false;
+                return;
+            }
+
+            try {
+                // Step 1: Fetch the main issue data (this is the big call)
+                this.issue = await api.getIssueDetails(this.issueId);
+                
+                // Step 2: Fetch supporting data in parallel
+                // We've replaced api.getUsers() with api.getCurrentUser()
+                const [projectData, sprintsData, currentUserData] = await Promise.all([
+                    api.getProjectById(this.issue.project_id),
+                    api.getSprintsForProject(this.issue.project_id),
+                    api.getCurrentUser()
+                ]);
+                
+                this.project = projectData;
+                this.sprints = sprintsData;
+
+                // Step 3: Build the assignable users list
+                this.users = []; // 'users' is what the <select> loops over
+                this.users.push(currentUserData); // Add the current user
+
+                // Step 4: Fetch project owner if they are a different person
+                if (this.project.owner_id !== currentUserData.user_id) {
+                    try {
+                        const ownerData = await api.getUserById(this.project.owner_id);
+                        if (ownerData) {
+                            this.users.push(ownerData);
+                        }
+                    } catch (ownerError) {
+                        // Don't crash the page if this fails, just log it.
+                        console.warn('Could not fetch project owner data:', ownerError.message);
+                    }
+                }
+
+            } catch (error) {
+                this.errorMessage = error.message;
+            } finally {
+                this.isLoading = false;
+            }
+        },
+        
+        // --- Issue Update Functions ---
+        
+        /**
+         * Called when the Status <select> changes.
+         */
+        async handleStatusUpdate(event) {
+            const newStatus = event.target.value;
+            try {
+                const updatedIssue = await api.updateIssueStatus(this.issueId, newStatus);
+                this.issue.status = updatedIssue.status;
+                this.issue.updated_date = updatedIssue.updated_date;
+            } catch (error) {
+                alert(`Failed to update status: ${error.message}`);
+                // Revert dropdown
+                event.target.value = this.issue.status;
+            }
+        },
+        
+        /**
+         * Called when the Assignee <select> changes.
+         */
+        async handleAssigneeUpdate(event) {
+            const newAssigneeId = event.target.value ? parseInt(event.target.value) : null;
+            try {
+                const updatedIssue = await api.assignIssueToUser(this.issueId, newAssigneeId);
+                this.issue.assignee_id = updatedIssue.assignee_id;
+                this.issue.assignee_username = updatedIssue.assignee_username;
+            } catch (error) {
+                alert(`Failed to update assignee: ${error.message}`);
+                event.target.value = this.issue.assignee_id || '';
+            }
+        },
+
+        // --- Comment Functions ---
+        
+        async handleCreateComment() {
+            if (!this.newCommentText.trim()) return;
+            this.isSubmittingComment = true;
+            try {
+                const newComment = await api.createComment(this.issueId, this.newCommentText);
+                this.issue.comments.push(newComment);
+                this.newCommentText = '';
+            } catch (error) {
+                alert(`Failed to post comment: ${error.message}`);
+            } finally {
+                this.isSubmittingComment = false;
+            }
+        },
+        
+        async handleDeleteComment(commentId) {
+            if (!confirm('Are you sure you want to delete this comment?')) return;
+            try {
+                await api.deleteComment(commentId);
+                // Remove the comment from the local array
+                this.issue.comments = this.issue.comments.filter(c => c.comment_id !== commentId);
+            } catch (error) {
+                alert(`Failed to delete comment: ${error.message}`);
+            }
+        },
+        
+        // --- Worklog Functions ---
+        
+        openWorklogModal() {
+            this.newWorklog = {
+                hours_logged: 1,
+                work_date: new Date().toISOString().split('T')[0],
+                description: ''
+            };
+            this.worklogError = '';
+            this.isWorklogModalOpen = true;
+        },
+        closeWorklogModal() { this.isWorklogModalOpen = false; },
+        
+        async handleCreateWorklog() {
+            this.worklogError = '';
+            if (this.newWorklog.hours_logged <= 0) {
+                this.worklogError = 'Hours logged must be positive.';
+                return;
+            }
+            try {
+                const data = { ...this.newWorklog, issue_id: this.issueId };
+                const created = await api.createWorklog(data);
+                this.issue.worklogs.unshift(created); // Add to top of list
+                this.issue.total_hours_logged += created.hours_logged;
+                this.closeWorklogModal();
+            } catch (error) {
+                this.worklogError = error.message;
+            }
+        },
+
+        async handleDeleteWorklog(worklog) {
+            if (!confirm('Are you sure you want to delete this worklog entry?')) return;
+            try {
+                await api.deleteWorklog(worklog.worklog_id);
+                this.issue.worklogs = this.issue.worklogs.filter(w => w.worklog_id !== worklog.worklog_id);
+                this.issue.total_hours_logged -= worklog.hours_logged;
+            } catch (error) {
+                alert(`Failed to delete worklog: ${error.message}`);
+            }
+        },
+
+        // --- Attachment Functions ---
+        
+        handleFileSelect(event) {
+            this.newAttachmentFile = event.target.files[0];
+            this.uploadError = '';
+        },
+        
+        async handleUploadAttachment() {
+            if (!this.newAttachmentFile) {
+                this.uploadError = 'Please select a file to upload.';
+                return;
+            }
+            this.isUploading = true;
+            this.uploadError = '';
+            try {
+                const newAttachment = await api.uploadAttachment(this.issueId, this.newAttachmentFile);
+                this.issue.attachments.push(newAttachment);
+                // Reset the file input
+                this.newAttachmentFile = null;
+                this.$refs.fileInput.value = null; 
+            } catch (error) {
+                this.uploadError = error.message;
+            } finally {
+                this.isUploading = false;
+            }
+        },
+        
+        async handleDownloadAttachment(attachmentId, filename) {
+            // This calls the special download function from api.js
+            await api.downloadProtectedAttachment(attachmentId, filename);
+        },
+
+        async handleDeleteAttachment(attachmentId) {
+            if (!confirm('Are you sure you want to delete this attachment?')) return;
+            try {
+                await api.deleteAttachment(attachmentId);
+                this.issue.attachments = this.issue.attachments.filter(a => a.attachment_id !== attachmentId);
+            } catch (error) {
+                alert(`Failed to delete attachment: ${error.message}`);
+            }
+        }
+        
+    }" x-init="init()">
+
+        <div x-show="isLoading" aria-busy="true" class="container">Loading issue details...</div>
+
+        <div x-show="errorMessage && !isLoading" class="container">
+            <article style="background: var(--pico-del-color); color: var(--pico-font-color);">
+                <strong>Error:</strong> <span x-text="errorMessage"></span>
+                <p><a href="dashboard.html">Go back to Dashboard</a></p>
+            </article>
+        </div>
+
+        <template x-if="!isLoading && issue"><div>
+            
+            <header class="container">
+                <nav>
+                    <ul>
+                        <li><a :href="'project.html?id=' + issue.project_id" class="secondary" x-text="project ? project.project_name : 'Project'"></a></li>
+                        <li>/</li>
+                        <li><strong x-text="project ? project.project_key + '-' + issue.issue_id : issue.issue_id"></strong></li>
+                    </ul>
+                </nav>
+                <h1 x-text="issue.description" style="word-break: break-word;"></h1>
+            </header>
+            
+            <div class="container">
+                <div class="grid">
+                
+                    <section x-data="{ currentTab: 'comments' }">
+                        
+                        <nav>
+                            <ul>
+                                <li><a href="#" :class="currentTab === 'comments' ? '' : 'secondary'" @click.prevent="currentTab = 'comments'">Comments (<span x-text="issue.comments.length"></span>)</a></li>
+                                <li><a href="#" :class="currentTab === 'worklogs' ? '' : 'secondary'" @click.prevent="currentTab = 'worklogs'">Work Log (<span x-text="issue.worklogs.length"></span>)</a></li>
+                                <li><a href="#" :class="currentTab === 'attachments' ? '' : 'secondary'" @click.prevent="currentTab = 'attachments'">Attachments (<span x-text="issue.attachments.length"></span>)</a></li>
+                            </ul>
+                        </nav>
+                        
+                        <div x-show="currentTab === 'comments'">
+                            <form @submit.prevent="handleCreateComment" class="comment-form">
+                                <label for="new_comment">Add a comment</label>
+                                <textarea id="new_comment" x-model="newCommentText" rows="3" placeholder="Type your comment here..."></textarea>
+                                <button type="submit" :disabled="isSubmittingComment || !newCommentText.trim()" :aria-busy="isSubmittingComment">
+                                    Save
+                                </button>
+                            </form>
+                            
+                            <div class="comment-list">
+                                <template x-for="comment in issue.comments" :key="comment.comment_id">
+                                    <article class="comment">
+                                        <header>
+                                            <strong x-text="comment.author_username || 'Unknown User'"></strong>
+                                            <small x-text="' commented on ' + formatDateTime(comment.created_at)"></small>
+                                            
+                                            <a href="#" 
+                                               @click.prevent="handleDeleteComment(comment.comment_id)"
+                                               x-show="currentUserId === comment.user_id || (project && currentUserId === project.owner_id)"
+                                               class="delete-link"
+                                               title="Delete comment">
+                                               (delete)
+                                            </a>
+                                        </header>
+                                        <p x-text="comment.comment_text" style="white-space: pre-wrap;"></p>
+                                    </article>
+                                </template>
+                            </div>
+                        </div>
+
+                        <div x-show="currentTab === 'worklogs'">
+                            <button @click="openWorklogModal()">+ Log Work</button>
+                            <p><strong>Total Hours Logged:</strong> <span x-text="issue.total_hours_logged.toFixed(2)"></span></p>
+                            
+                            <template x-for="worklog in issue.worklogs" :key="worklog.worklog_id">
+                                <article class="worklog-entry">
+                                    <header>
+                                        <strong x-text="worklog.logger_username || 'Unknown'"></strong>
+                                        logged <strong x-text="worklog.hours_logged + 'h'"></strong>
+                                        on <span x-text="formatDate(worklog.work_date)"></span>
+                                        
+                                        <a href="#"
+                                           @click.prevent="handleDeleteWorklog(worklog)"
+                                           x-show="currentUserId === worklog.user_id || (project && currentUserId === project.owner_id)"
+                                           class="delete-link"
+                                           title="Delete worklog">
+                                           (delete)
+                                        </a>
+                                    </header>
+                                    <p x-text="worklog.description || 'No description.'"></p>
+                                </article>
+                            </template>
+                        </div>
+                        
+                        <div x-show="currentTab === 'attachments'">
+                            <form @submit.prevent="handleUploadAttachment">
+                                <label for="file_upload">Upload a file</label>
+                                <input type="file" id="file_upload" x-ref="fileInput" @change="handleFileSelect">
+                                <button type="submit" :disabled="isUploading" :aria-busy="isUploading">Upload</button>
+                                <small x-show="uploadError" style="color: var(--pico-del-color);" x-text="uploadError"></small>
+                            </form>
+                            
+                            <ul class="attachment-list">
+                                <template x-for="att in issue.attachments" :key="att.attachment_id">
+                                    <li>
+                                        <a href="#" @click.prevent="handleDownloadAttachment(att.attachment_id, att.file_name)" x-text="att.file_name"></a>
+                                        <small>
+                                            (by <span x-text="att.uploader_username || 'Unknown'"></span>
+                                            on <span x-text="formatDate(att.uploaded_at)"></span>)
+                                        </small>
+                                        <a href="#"
+                                           @click.prevent="handleDeleteAttachment(att.attachment_id)"
+                                           x-show="currentUserId === att.user_id || (project && currentUserId === project.owner_id)"
+                                           class="delete-link"
+                                           title="Delete attachment">
+                                           (delete)
+                                        </a>
+                                    </li>
+                                </template>
+                            </ul>
+                        </div>
+                        
+                    </section>
+                    
+                    <aside>
+                        <article>
+                            <header>Details</header>
+                            
+                            <label for="status">Status</label>
+                            <select id="status" :value="issue.status" @change="handleStatusUpdate">
+                                <option value="To Do">To Do</option>
+                                <option value="In Progress">In Progress</option>
+                                <option value="In Review">In Review</option>
+                                <option value="Done">Done</option>
+                                <option value="Blocked">Blocked</option>
+                            </select>
+                            
+                            <label for="assignee">Assignee</label>
+                            <select id="assignee" :value="issue.assignee_id || ''" @change="handleAssigneeUpdate">
+                                <option value="">Unassigned</option>
+                                <template x-for="user in users" :key="user.user_id">
+                                    <option :value="user.user_id" x-text="user.username"></option>
+                                </template>
+                            </select>
+                            
+                            <label>Reporter</label>
+                            <p><strong x-text="issue.reporter_username || 'Unknown'"></strong></p>
+
+                            <label>Priority</label>
+                            <p><strong x-text="issue.priority"></strong></p>
+
+                            <label>Sprint</label>
+                            <p><strong x-text="issue.sprint_name || 'Backlog'"></strong></p>
+                            
+                            <label>Story Points</label>
+                            <p><strong x-text="issue.story_points || 'Not set'"></strong></p>
+                            
+                            <hr>
+                            
+                            <small>Created: <span x-text="formatDateTime(issue.created_date)"></span></small><br>
+                            <small>Updated: <span x-text="formatDateTime(issue.updated_date)"></span></small>
+                        </article>
+                    </aside>
+                
+                </div>
+            </div>
+        </div></template>
+        
+        <dialog :open="isWorklogModalOpen">
+            <article>
+                <header>
+                    <a href="#close" aria-label="Close" class="close" @click.prevent="closeWorklogModal()"></a>
+                    Log Work
+                </header>
+                <form @submit.prevent="handleCreateWorklog()">
+                    <div class="grid">
+                        <label>Hours Logged
+                            <input type="number" x-model="newWorklog.hours_logged" step="0.5" min="0.5" required>
+                        </label>
+                        <label>Work Date
+                            <input type="date" x-model="newWorklog.work_date" required>
+                        </label>
+                    </div>
+                    <label>Description
+                        <textarea x-model="newWorklog.description" rows="3"></textarea>
+                    </label>
+                    
+                    <small x-show="worklogError" style="color: var(--pico-del-color);" x-text="worklogError"></small>
+                    
+                    <footer>
+                        <button type="button" class="secondary" @click="closeWorklogModal()">Cancel</button>
+                        <button type="submit">Log Work</button>
+                    </footer>
+                </form>
+            </article>
+        </dialog>
+
+    </main>
+</body>
+</html>

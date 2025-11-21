@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - Project Manager</title>
+    
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@1/css/pico.min.css">
+    <link rel="stylesheet" href="css/style.css">
+    
+    <script src="js/auth.js"></script> <script src="js/api.js" defer></script>
+    <script src="js/utils.js" defer></script>
+    
+    <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+
+    <script>
+        protectPage();
+    </script>
+</head>
+
+<body x-data="{
+    projects: [],
+    isLoading: true,
+    errorMessage: '',
+
+    // State for the 'Create Project' modal
+    isModalOpen: false,
+    newProject: {
+        project_key: '',
+        project_name: '',
+        description: ''
+    },
+    modalError: '',
+
+    /**
+     * Loads all projects from the API.
+     * Called by x-init.
+     */
+    async loadProjects() {
+        this.isLoading = true;
+        this.errorMessage = '';
+        try {
+            this.projects = await api.getProjects();
+        } catch (error) {
+            this.errorMessage = error.message;
+        } finally {
+            this.isLoading = false;
+        }
+    },
+
+    /**
+     * Opens the 'Create Project' modal and resets the form.
+     */
+    openCreateModal() {
+        this.isModalOpen = true;
+        this.newProject = { project_key: '', project_name: '', description: '' };
+        this.modalError = '';
+    },
+
+    /**
+     * Closes the 'Create Project' modal.
+     */
+    closeCreateModal() {
+        this.isModalOpen = false;
+    },
+
+    /**
+     * Handles the submission of the 'Create Project' form.
+     */
+    async handleCreateProject() {
+        this.modalError = '';
+        
+        if (!this.newProject.project_key || !this.newProject.project_name) {
+            this.modalError = 'Project Key and Project Name are required.';
+            return;
+        }
+        if (this.newProject.project_key.length > 10) {
+            this.modalError = 'Project Key must be 10 characters or less.';
+            return;
+        }
+
+        try {
+            const created = await api.createProject(this.newProject);
+            this.projects.unshift(created); 
+            this.closeCreateModal();
+        } catch (error) {
+            this.modalError = error.message;
+        }
+    }
+}" x-init="loadProjects()"> <nav class="container-fluid">
+        <ul>
+            <li><strong>Project Manager</strong></li>
+        </ul>
+        <ul>
+            <li><a href="dashboard.html" class="secondary" role="button">Dashboard</a></li>
+            <li><a href="profile.html" class="secondary" role="button">My Profile</a></li>
+            <li><button class="secondary outline" onclick="logout()">Logout</button></li>
+        </ul>
+    </nav>
+
+    <main class="container">
+
+        <header style="display: flex; justify-content: space-between; align-items: center;">
+            <h1 style="margin-bottom: 0;">My Projects</h1>
+            <button @click="openCreateModal()">
+                + New Project
+            </button>
+        </header>
+        
+        <hr>
+
+        <div x-show="isLoading" aria-busy="true">Loading projects...</div>
+
+        <div x-show="errorMessage">
+            <article style="background: var(--pico-del-color); color: var(--pico-font-color);">
+                <strong>Error:</strong> <span x-text="errorMessage"></span>
+            </article>
+        </div>
+
+        <div x-show="!isLoading && !errorMessage">
+            <p x-show="projects.length === 0">
+                You haven't created any projects yet. Click "New Project" to get started.
+            </p>
+
+            <table role="grid" x-show="projects.length > 0">
+                <thead>
+                    <tr>
+                        <th scope="col">Key</th>
+                        <th scope="col">Project Name</th>
+                        <th scope="col">Status</th>
+                        <th scope="col">Created On</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <template x-for="project in projects" :key="project.project_id">
+                        <tr>
+                            <td>
+                                <a :href="'project.html?id=' + project.project_id">
+                                    <strong x-text="project.project_key"></strong>
+                                </a>
+                            </td>
+                            <td x-text="project.project_name"></td>
+                            <td><span x-text="capitalize(project.status)"></span></td>
+                            <td x-text="formatDateTime(project.created_at)"></td>
+                        </tr>
+                    </template>
+                </tbody>
+            </table>
+        </div>
+
+        <dialog :open="isModalOpen">
+            <article>
+                <header>
+                    <a href="#close"
+                       aria-label="Close"
+                       class="close"
+                       @click.prevent="closeCreateModal()">
+                    </a>
+                    Create New Project
+                </header>
+
+                <form @submit.prevent="handleCreateProject()">
+                    <label for="project_key">
+                        Project Key (Required)
+                        <input 
+                            type="text" 
+                            id="project_key"
+                            x-model="newProject.project_key"
+                            placeholder="e.g., DEMO (10 chars max)"
+                            required
+                        >
+                    </label>
+
+                    <label for="project_name">
+                        Project Name (Required)
+                        <input 
+                            type="text" 
+                            id="project_name"
+                            x-model="newProject.project_name"
+                            placeholder="e.g., My Demo Project"
+                            required
+                        >
+                    </label>
+
+                    <label for="project_desc">
+                        Description
+                        <textarea 
+                            id="project_desc"
+                            x-model="newProject.description"
+                            rows="3"
+                        ></textarea>
+                    </label>
+
+                    <small 
+                        x-show="modalError" 
+                        x-text="modalError"
+                        style="color: var(--pico-del-color);"
+                    ></small>
+
+                    <footer>
+                        <button 
+                            type="button" 
+                            class="secondary" 
+                            @click="closeCreateModal()">
+                            Cancel
+                        </button>
+                        <button 
+                            type="submit"
+                            x-text="isLoading ? 'Creating...' : 'Create Project'"
+                            :disabled="isLoading">
+                        </button>
+                    </footer>
+                </form>
+            </article>
+        </dialog>
+
+    </main>
+</body>
+</html>

@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>My Profile - Project Manager</title>
+    
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@1/css/pico.min.css">
+    <link rel="stylesheet" href="css/style.css">
+    
+    <script src="js/auth.js"></script> <script src="js/api.js" defer></script>
+    <script src="js/utils.js" defer></script>
+    
+    <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+
+    <script>
+        protectPage();
+    </script>
+</head>
+<body>
+
+    <nav class="container-fluid">
+        <ul>
+            <li><strong>Project Manager</strong></li>
+        </ul>
+        <ul>
+            <li><a href="dashboard.html" class="secondary" role="button">Dashboard</a></li>
+            <li><a href="profile.html" class="secondary" role="button">My Profile</a></li>
+            <li><button class="secondary outline" onclick="logout()">Logout</button></li>
+        </ul>
+    </nav>
+
+    <main class="container" style="max-width: 700px;" x-data="{
+        // --- Form Data (matches UserUpdate model) ---
+        user: {
+            email: '',
+            first_name: '',
+            last_name: '',
+            phone: ''
+        },
+        
+        // --- Read-only data ---
+        username: '',
+        role: '',
+        created_at: '',
+        
+        // --- UI State ---
+        isLoading: true,
+        isSubmitting: false,
+        errorMessage: '',
+        successMessage: '',
+
+        /**
+         * Initializes the component.
+         * Fetches the current user's data to populate the form.
+         */
+        async init() {
+            this.isLoading = true;
+            this.errorMessage = '';
+            this.successMessage = '';
+            
+            try {
+                // Fetch the user's data from /api/auth/users/me
+                const userData = await api.getCurrentUser();
+                
+                // Populate the form fields
+                this.user.email = userData.email;
+                this.user.first_name = userData.first_name || '';
+                this.user.last_name = userData.last_name || '';
+                this.user.phone = userData.phone || '';
+                
+                // Populate read-only fields
+                this.username = userData.username;
+                this.role = userData.role;
+                this.created_at = userData.created_at;
+
+            } catch (error) {
+                this.errorMessage = `Failed to load profile: ${error.message}`;
+            } finally {
+                this.isLoading = false;
+            }
+        },
+
+        /**
+         * Handles the profile update form submission.
+         */
+        async handleUpdateProfile() {
+            this.isSubmitting = true;
+            this.errorMessage = '';
+            this.successMessage = '';
+
+            // Clean up empty fields to send 'null' instead of ''
+            const dataToUpdate = {
+                email: this.user.email,
+                first_name: this.user.first_name || null,
+                last_name: this.user.last_name || null,
+                phone: this.user.phone || null
+            };
+
+            try {
+                // Call the API function from js/api.js
+                const updatedUser = await api.updateCurrentUser(dataToUpdate);
+                
+                // Update the form again in case the API modified anything
+                this.user.email = updatedUser.email;
+                this.user.first_name = updatedUser.first_name || '';
+                this.user.last_name = updatedUser.last_name || '';
+                this.user.phone = updatedUser.phone || '';
+                
+                this.successMessage = 'Profile updated successfully!';
+
+            } catch (error) {
+                // Display API errors (e.g., 'Email already exists')
+                this.errorMessage = error.message;
+            } finally {
+                this.isSubmitting = false;
+            }
+        }
+    }" x-init="init()">
+
+        <div x-show="isLoading" aria-busy="true">Loading profile...</div>
+
+        <div x-show="errorMessage && !isLoading">
+            <article style="background: var(--pico-del-color); color: var(--pico-font-color);">
+                <strong>Error:</strong> <span x-text="errorMessage"></span>
+            </article>
+        </div>
+
+        <article x-show="!isLoading && !errorMessage">
+            <header>
+                <h2>My Profile</h2>
+            </header>
+            
+            <form @submit.prevent="handleUpdateProfile()">
+            
+                <div class="grid">
+                    <label>
+                        Username (read-only)
+                        <input type="text" :value="username" readonly disabled>
+                    </label>
+                    <label>
+                        Role (read-only)
+                        <input type="text" :value="capitalize(role)" readonly disabled>
+                    </label>
+                </div>
+                
+                <hr>
+
+                <div class="grid">
+                    <label for="first_name">
+                        First Name
+                        <input 
+                            type="text" 
+                            id="first_name" 
+                            name="first_name" 
+                            x-model="user.first_name"
+                        >
+                    </label>
+                    <label for="last_name">
+                        Last Name
+                        <input 
+                            type="text" 
+                            id="last_name" 
+                            name="last_name" 
+                            x-model="user.last_name"
+                        >
+                    </label>
+                </div>
+
+                <label for="email">Email (Required)</label>
+                <input 
+                    type="email" 
+                    id="email" 
+                    name="email" 
+                    x-model="user.email"
+                    required
+                >
+
+                <label for="phone">Phone</label>
+                <input 
+                    type="tel" 
+                    id="phone" 
+                    name="phone" 
+                    x-model="user.phone"
+                >
+                
+                <small 
+                    x-show="successMessage" 
+                    x-text="successMessage"
+                    style="color: var(--pico-confirmation-color);"
+                ></small>
+                
+                <small 
+                    x-show="errorMessage" 
+                    x-text="errorMessage"
+                    style="color: var(--pico-del-color);"
+                ></small>
+                
+                <footer>
+                    <button 
+                        type="submit" 
+                        :disabled="isSubmitting"
+                        :aria-busy="isSubmitting"
+                        x-text="isSubmitting ? 'Saving...' : 'Save Changes'"
+                    ></button>
+                </footer>
+            </form>
+            
+            <footer style="text-align: center;">
+                <small>Account created: <span x-text="formatDateTime(created_at)"></span></small>
+            </footer>
+
+        </article>
+    </main>
+</body>
+</html>

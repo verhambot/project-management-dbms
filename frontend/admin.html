@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Panel - Project Manager</title>
+    
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@1/css/pico.min.css">
+    <link rel="stylesheet" href="css/style.css">
+    
+    <script src="js/auth.js"></script> <script src="js/api.js" defer></script>
+    <script src="js/utils.js" defer></script>
+    
+    <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+
+    <script>
+        protectPage();
+    </script>
+</head>
+<body>
+
+    <nav class="container-fluid" x-data="{ isAdmin: false }" x-init="
+        api.getCurrentUser().then(user => { isAdmin = (user.role === 'admin'); }).catch(() => { isAdmin = false; })
+    ">
+        <ul>
+            <li><strong>Project Manager</strong></li>
+        </ul>
+        <ul>
+            <li><a href="dashboard.html" class="secondary" role="button">Dashboard</a></li>
+            <li><a href="profile.html" class="secondary" role="button">My Profile</a></li>
+            <li x-show="isAdmin"><a href="admin.html" role="button">Admin</a></li>
+            <li><button class="secondary outline" onclick="logout()">Logout</button></li>
+        </ul>
+    </nav>
+
+    <main class="container" x-data="{
+        users: [],
+        isLoading: true,
+        errorMessage: '',
+        
+        /**
+         * Initializes the component.
+         * Step 2 of our guard: Check if the logged-in user is an admin.
+         * If not, redirect them.
+         */
+        async init() {
+            this.isLoading = true;
+            this.errorMessage = '';
+            
+            try {
+                // First, check for admin role
+                const currentUser = await api.getCurrentUser();
+                if (currentUser.role !== 'admin') {
+                    // Not an admin, redirect to the dashboard
+                    this.errorMessage = 'Access Denied: Admin role required. Redirecting...';
+                    setTimeout(() => {
+                        window.location.replace('dashboard.html');
+                    }, 2000);
+                    return;
+                }
+                
+                // If we are here, user is an admin. Fetch the user list.
+                this.users = await api.getUsers();
+
+            } catch (error) {
+                this.errorMessage = `Failed to load data: ${error.message}`;
+            } finally {
+                this.isLoading = false;
+            }
+        }
+    }" x-init="init()">
+    
+        <header>
+            <h1>Admin Panel - User Management</h1>
+        </header>
+
+        <div x-show="isLoading" aria-busy="true">Loading user data...</div>
+
+        <div x-show="errorMessage && !isLoading">
+            <article style="background: var(--pico-del-color); color: var(--pico-font-color);">
+                <strong>Error:</strong> <span x-text="errorMessage"></span>
+            </article>
+        </div>
+
+        <article x-show="!isLoading && !errorMessage">
+            <table role="grid" x-show="users.length > 0">
+                <thead>
+                    <tr>
+                        <th scope="col">User ID</th>
+                        <th scope="col">Username</th>
+                        <th scope="col">Email</th>
+                        <th scope="col">Full Name</th>
+                        <th scope="col">Role</th>
+                        <th scope="col">Joined</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <template x-for="user in users" :key="user.user_id">
+                        <tr>
+                            <td><strong x-text="user.user_id"></strong></td>
+                            <td x-text="user.username"></td>
+                            <td x-text="user.email"></td>
+                            <td x-text="(user.first_name || '') + ' ' + (user.last_name || '')"></td>
+                            <td><span x-text="capitalize(user.role)"></span></td>
+                            <td x-text="formatDate(user.created_at)"></td>
+                        </tr>
+                    </template>
+                </tbody>
+            </table>
+        </article>
+
+    </main>
+</body>
+</html>

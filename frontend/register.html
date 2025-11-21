@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Register - Project Manager</title>
+    
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@1/css/pico.min.css">
+    
+    <link rel="stylesheet" href="css/style.css">
+    
+    <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+    
+    <script src="js/auth.js" defer></script>
+    <script src="js/api.js" defer></script>
+</head>
+<body>
+
+    <main class="container" style="max-width: 600px; margin-top: 3rem;">
+
+        <article x-data="{
+            username: '',
+            email: '',
+            password: '',
+            passwordConfirm: '',
+            first_name: '',
+            last_name: '',
+            phone: '',
+            errorMessage: '',
+            successMessage: '',
+            isLoading: false,
+
+            /**
+             * Handles the registration form submission.
+             */
+            async handleRegister() {
+                this.isLoading = true;
+                this.errorMessage = '';
+                this.successMessage = '';
+
+                // Client-side password validation
+                if (this.password !== this.passwordConfirm) {
+                    this.errorMessage = 'Passwords do not match.';
+                    this.isLoading = false;
+                    return;
+                }
+
+                if (this.password.length < 8) {
+                    this.errorMessage = 'Password must be at least 8 characters long.';
+                    this.isLoading = false;
+                    return;
+                }
+                
+                // Create the user data object to send to the API
+                const userData = {
+                    username: this.username,
+                    email: this.email,
+                    password: this.password,
+                    first_name: this.first_name || null, // Send null if empty
+                    last_name: this.last_name || null,   // Send null if empty
+                    phone: this.phone || null          // Send null if empty
+                };
+
+                try {
+                    // We will create api.register() in 'js/api.js'.
+                    // This function will:
+                    // 1. POST to /api/auth/register with the userData
+                    // 2. On success, return the new user object
+                    // 3. On failure, throw an error
+                    await api.register(userData);
+                    
+                    // On success, show a message and clear the form
+                    this.successMessage = 'Registration successful! You can now log in.';
+                    this.username = '';
+                    this.email = '';
+                    this.password = '';
+                    this.passwordConfirm = '';
+                    this.first_name = '';
+                    this.last_name = '';
+                    this.phone = '';
+
+                } catch (error) {
+                    // Show API errors (e.g., 'Username already exists')
+                    this.errorMessage = error.message;
+                } finally {
+                    this.isLoading = false;
+                }
+            }
+        }">
+
+            <h2 style="text-align: center;">Create an Account</h2>
+            
+            <form @submit.prevent="handleRegister">
+
+                <div class="grid">
+                    <label for="first_name">
+                        First Name (Optional)
+                        <input 
+                            type="text" 
+                            id="first_name" 
+                            name="first_name" 
+                            x-model="first_name"
+                        >
+                    </label>
+                    <label for="last_name">
+                        Last Name (Optional)
+                        <input 
+                            type="text" 
+                            id="last_name" 
+                            name="last_name" 
+                            x-model="last_name"
+                        >
+                    </label>
+                </div>
+
+                <label for="username">Username (Required)</label>
+                <input 
+                    type="text" 
+                    id="username" 
+                    name="username" 
+                    x-model="username"
+                    required
+                    placeholder="Must be at least 3 characters"
+                >
+
+                <label for="email">Email (Required)</label>
+                <input 
+                    type="email" 
+                    id="email" 
+                    name="email" 
+                    x-model="email"
+                    required
+                    placeholder="e.g., user@example.com"
+                >
+
+                <label for="phone">Phone (Optional)</label>
+                <input 
+                    type="tel" 
+                    id="phone" 
+                    name="phone" 
+                    x-model="phone"
+                    placeholder="e.g., +1234567890"
+                >
+
+                <div class="grid">
+                    <label for="password">
+                        Password (Required)
+                        <input 
+                            type="password" 
+                            id="password" 
+                            name="password" 
+                            x-model="password"
+                            required
+                            placeholder="Min 8 characters"
+                        >
+                    </label>
+                    <label for="passwordConfirm">
+                        Confirm Password (Required)
+                        <input 
+                            type="password" 
+                            id="passwordConfirm" 
+                            name="passwordConfirm" 
+                            x-model="passwordConfirm"
+                            required
+                        >
+                    </label>
+                </div>
+                
+                <small 
+                    x-show="successMessage" 
+                    x-text="successMessage"
+                    style="color: var(--pico-confirmation-color);"
+                ></small>
+                
+                <small 
+                    x-show="errorMessage" 
+                    x-text="errorMessage"
+                    style="color: var(--pico-del-color);"
+                ></small>
+
+                <button 
+                    type="submit" 
+                    :disabled="isLoading"
+                    x-text="isLoading ? 'Registering...' : 'Register'"
+                ></button>
+
+            </form>
+            
+            <footer>
+                <small>Already have an account? <a href="index.html">Log in</a></small>
+            </footer>
+
+        </article>
+    </main>
+
+</body>
+</html>

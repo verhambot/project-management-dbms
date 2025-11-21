@@ -1,0 +1,37 @@
+services:
+  db:
+    # Use the official MySQL 8.0 image
+    image: mysql
+    container_name: jira_clone_db
+    restart: unless-stopped
+    
+    # Environment variables to configure the MySQL instance
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword  # Strong password for the root user
+      MYSQL_DATABASE: jira_clone         # The name of the database to create
+      MYSQL_USER: user                   # A non-root user for our application
+      MYSQL_PASSWORD: password           # Password for the non-root user
+    
+    ports:
+      # Map host port 3307 to container port 3306
+      # Using 3307 avoids conflicts with any local MySQL instance
+      - "3307:3306"
+      
+    volumes:
+      # Persist database data on the host machine
+      - mysql_data:/var/lib/mysql
+      
+      # Mount our SQL script. MySQL image runs scripts in this directory
+      # on first initialization (when the volume is empty).
+      - ./server/database/init_schema.sql:/docker-entrypoint-initdb.d/init_schema.sql
+      
+    healthcheck:
+      # Check if the database is ready to accept connections
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u$$MYSQL_USER", "-p$$MYSQL_PASSWORD"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+# Define the named volume for data persistence
+volumes:
+  mysql_data:

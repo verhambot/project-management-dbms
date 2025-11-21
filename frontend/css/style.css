@@ -1,0 +1,101 @@
+/**
+ * css/style.css
+ *
+ * Your custom stylesheet to add or override Pico.css styles.
+ */
+
+/* --- Global Tweaks --- */
+
+/* Make the main content area a bit wider on large screens */
+@media (min-width: 1200px) {
+    .container {
+        max-width: 960px;
+    }
+}
+
+/* Make modals a bit wider by default */
+dialog > article {
+    width: 600px;
+}
+
+/* --- Navigation --- */
+
+/* Make the top navigation bar sticky */
+nav.container-fluid {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    /* This uses Pico's background variable for theme-awareness */
+    background-color: var(--pico-card-background-color); 
+    border-bottom: 1px solid var(--pico-card-border-color);
+}
+
+/* --- Issue Page Specifics --- */
+
+/* A little helper for delete links */
+.delete-link {
+    color: var(--pico-muted-color);
+    font-size: 0.8rem;
+    font-weight: normal;
+    text-decoration: none;
+    margin-left: 0.5rem;
+}
+.delete-link:hover {
+    color: var(--pico-del-color);
+    text-decoration: underline;
+}
+
+/* Style the comment list */
+.comment-form {
+    margin-bottom: 1.5rem;
+}
+.comment-form button {
+    /* Make the comment button smaller and float right */
+    width: auto;
+    float: right;
+    margin-top: 0.5rem;
+}
+
+.comment-list .comment {
+    margin-bottom: 1rem;
+    padding: 1rem;
+}
+.comment-list .comment header {
+    padding: 0;
+    background-color: transparent;
+    border-bottom: 1px solid var(--pico-card-border-color);
+    margin-bottom: 0.5rem;
+}
+.comment-list .comment p {
+    margin-bottom: 0;
+}
+
+/* Style the attachment list */
+.attachment-list {
+    list-style: none;
+    padding-left: 0;
+}
+.attachment-list li {
+    margin-bottom: 0.5rem;
+    padding: 0.5rem;
+    border: 1px solid var(--pico-card-border-color);
+    border-radius: var(--pico-border-radius);
+}
+.attachment-list li > small {
+    display: block;
+    margin-top: 0.25rem;
+}
+
+/* Style the worklog entries */
+.worklog-entry {
+    padding: 1rem;
+    margin-bottom: 1rem;
+}
+.worklog-entry header {
+    padding: 0;
+    background: transparent;
+}
+.worklog-entry p {
+    margin: 0.5rem 0 0 0;
+    white-space: pre-wrap;
+}
