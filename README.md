@@ -95,27 +95,20 @@ A full-stack project management application built with FastAPI (Python) backend 
 ## Setup & Installation
 
 ### Prerequisites
-- Python 3.8+
-- MySQL 8.0+
-- Node.js (for serving frontend)
+- Docker and Docker Compose
 
-### Backend Setup
+### Docker Setup (Recommended)
 
-1. **Install Python dependencies**:
+1. **Start the application**:
 ```bash
-cd server
-pip install -r requirements.txt
+docker-compose up
 ```
 
-2. **Configure database**:
-   - Create a MySQL database
-   - Update `server/config.py` with your database credentials
-   - Run the schema: `mysql -u your_user -p your_database < database/init_schema.sql`
+This will start the database and backend services automatically.
 
-3. **Run the backend**:
+2. **Run the backend**:
 ```bash
-python main.py
-# or
+cd server
 ./run.sh
 ```
 
@@ -136,14 +129,6 @@ python -m http.server 3000
 ```
 
 The frontend will be available at `http://localhost:3000`
-
-### Docker Setup (Alternative)
-
-```bash
-docker-compose up
-```
-
-This will start both the backend and database services.
 
 ## API Documentation
 
