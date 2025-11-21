@@ -155,13 +155,8 @@ Key relationships:
 
 ## Usage
 
-### Default Users
-After running the schema initialization, an admin user is created:
-- **Username**: `admin`
-- **Password**: `admin123`
-
-### Basic Workflow
-1. **Login** with credentials
+### Getting Started
+1. **Register** a new user account via the registration page
 2. **Create a project** from the dashboard
 3. **Add sprints** to organize work into iterations
 4. **Create issues** to track work items
